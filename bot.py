@@ -530,18 +530,35 @@ def parse_quick_lessons(text: str) -> tuple[sqlite3.Row, list[tuple[datetime, in
     return student, lessons
 
 
+def split_quick_input(text: str) -> list[str]:
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    if lines:
+        return lines
+    stripped = text.strip()
+    return [stripped] if stripped else []
+
+
 def quick_add_weekly_lessons(text: str) -> tuple[str, list[Lesson]]:
-    student, lesson_specs = parse_quick_lessons(text)
     added_lessons = []
     skipped = 0
-    for starts_at, duration in lesson_specs:
-        if weekly_lesson_exists(student["id"], starts_at):
-            skipped += 1
-            continue
-        lesson_id = add_lesson(student["id"], starts_at, duration, "weekly", "")
-        lesson = get_lesson(lesson_id)
-        if lesson:
-            added_lessons.append(lesson)
+    lines = split_quick_input(text)
+    if not lines:
+        raise ValueError("Напиши расписание одной или несколькими строками.")
+
+    for line in lines:
+        try:
+            student, lesson_specs = parse_quick_lessons(line)
+        except ValueError as exc:
+            raise ValueError(f"Не понял строку:\n<code>{h(line)}</code>\n\n{exc}") from exc
+
+        for starts_at, duration in lesson_specs:
+            if weekly_lesson_exists(student["id"], starts_at):
+                skipped += 1
+                continue
+            lesson_id = add_lesson(student["id"], starts_at, duration, "weekly", "")
+            lesson = get_lesson(lesson_id)
+            if lesson:
+                added_lessons.append(lesson)
 
     if not added_lessons and skipped:
         return "Такие еженедельные занятия уже есть.", []
