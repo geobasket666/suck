@@ -2,6 +2,7 @@ import asyncio
 import html
 import logging
 import os
+import re
 import sqlite3
 from contextlib import closing
 from dataclasses import dataclass
@@ -48,6 +49,7 @@ PROXY_URL = os.getenv("PROXY_URL", "").strip()
 
 ADD_STUDENT_BUTTON = "Новый ученик"
 ADD_LESSON_BUTTON = "Новое занятие"
+QUICK_ADD_BUTTON = "Быстрый ввод"
 EDIT_SCHEDULE_BUTTON = "Изменить расписание"
 OLD_ADD_STUDENT_BUTTON = "Добавить ученика"
 OLD_ADD_LESSON_BUTTON = "Добавить занятие"
@@ -67,6 +69,30 @@ WEEKDAY_NAMES = [
     "Воскресенье",
 ]
 
+WEEKDAY_ALIASES = {
+    "пн": 0,
+    "понедельник": 0,
+    "вт": 1,
+    "вторник": 1,
+    "ср": 2,
+    "среда": 2,
+    "чт": 3,
+    "четверг": 3,
+    "пт": 4,
+    "пятница": 4,
+    "сб": 5,
+    "суббота": 5,
+    "вс": 6,
+    "воскресенье": 6,
+}
+
+QUICK_PAIR_PATTERN = re.compile(
+    r"\b(?P<day>пн|понедельник|вт|вторник|ср|среда|чт|четверг|пт|пятница|сб|суббота|вс|воскресенье)\.?\s+"
+    r"(?P<time>[0-2]?\d:[0-5]\d)"
+    r"(?:\s+(?P<duration>\d{2,3}))?\b",
+    re.IGNORECASE,
+)
+
 
 class AddStudentFlow(StatesGroup):
     name = State()
@@ -80,6 +106,10 @@ class AddLessonFlow(StatesGroup):
     duration = State()
     recurrence = State()
     note = State()
+
+
+class QuickAddFlow(StatesGroup):
+    text = State()
 
 
 class EditScheduleFlow(StatesGroup):
@@ -197,6 +227,21 @@ def list_students() -> list[sqlite3.Row]:
 def student_exists(student_id: int) -> bool:
     with closing(connect()) as conn:
         row = conn.execute("SELECT id FROM students WHERE id = ?", (student_id,)).fetchone()
+        return row is not None
+
+
+def weekly_lesson_exists(student_id: int, starts_at: datetime) -> bool:
+    with closing(connect()) as conn:
+        row = conn.execute(
+            """
+            SELECT id
+            FROM lessons
+            WHERE student_id = ?
+              AND starts_at = ?
+              AND recurrence = 'weekly'
+            """,
+            (student_id, dt_to_db(starts_at)),
+        ).fetchone()
         return row is not None
 
 
@@ -425,6 +470,84 @@ def h(value: object) -> str:
     return html.escape(str(value), quote=False)
 
 
+def find_student_in_text(text: str) -> tuple[sqlite3.Row, str]:
+    normalized = text.strip()
+    lowered = normalized.lower()
+    students = sorted(list_students(), key=lambda row: len(row["name"]), reverse=True)
+    for student in students:
+        name = student["name"].strip()
+        name_lower = name.lower()
+        if lowered == name_lower:
+            return student, ""
+        if lowered.startswith(name_lower + " "):
+            return student, normalized[len(name):].strip()
+    raise ValueError("Не нашел ученика. Проверь имя или добавь ученика через кнопку <b>Новый ученик</b>.")
+
+
+def next_weekday_datetime(weekday: int, time_text: str) -> datetime:
+    hour_raw, minute_raw = time_text.split(":", 1)
+    hour = int(hour_raw)
+    minute = int(minute_raw)
+    if hour > 23:
+        raise ValueError("Время должно быть в формате <code>20:30</code>.")
+
+    current = now_local()
+    days_ahead = (weekday - current.weekday()) % 7
+    candidate = (current + timedelta(days=days_ahead)).replace(
+        hour=hour,
+        minute=minute,
+        second=0,
+        microsecond=0,
+    )
+    if candidate <= current:
+        candidate += timedelta(days=7)
+    return candidate
+
+
+def parse_quick_lessons(text: str) -> tuple[sqlite3.Row, list[tuple[datetime, int]]]:
+    student, rest = find_student_in_text(text)
+    if not rest:
+        raise ValueError(
+            "После имени укажи день и время.\n\n"
+            "Пример: <code>Захар ср 20:30</code>"
+        )
+
+    lessons = []
+    for match in QUICK_PAIR_PATTERN.finditer(rest):
+        day_text = match.group("day").lower().rstrip(".")
+        starts_at = next_weekday_datetime(WEEKDAY_ALIASES[day_text], match.group("time"))
+        duration = int(match.group("duration") or 60)
+        lessons.append((starts_at, duration))
+
+    if not lessons:
+        raise ValueError(
+            "Не понял день и время.\n\n"
+            "Примеры:\n"
+            "<code>Захар ср 20:30</code>\n"
+            "<code>Никита ср 19:30, чт 19:00</code>\n"
+            "<code>София среда 17:00 90</code>"
+        )
+    return student, lessons
+
+
+def quick_add_weekly_lessons(text: str) -> tuple[str, list[Lesson]]:
+    student, lesson_specs = parse_quick_lessons(text)
+    added_lessons = []
+    skipped = 0
+    for starts_at, duration in lesson_specs:
+        if weekly_lesson_exists(student["id"], starts_at):
+            skipped += 1
+            continue
+        lesson_id = add_lesson(student["id"], starts_at, duration, "weekly", "")
+        lesson = get_lesson(lesson_id)
+        if lesson:
+            added_lessons.append(lesson)
+
+    if not added_lessons and skipped:
+        return "Такие еженедельные занятия уже есть.", []
+    return "", added_lessons
+
+
 def format_lesson(lesson: Lesson) -> str:
     starts = lesson.starts_at.strftime("%d.%m.%Y %H:%M")
     date_part, time_part = starts.split(" ", 1)
@@ -485,7 +608,7 @@ def main_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[
             [KeyboardButton(text=ADD_LESSON_BUTTON), KeyboardButton(text=ADD_STUDENT_BUTTON)],
-            [KeyboardButton(text=EDIT_SCHEDULE_BUTTON)],
+            [KeyboardButton(text=QUICK_ADD_BUTTON), KeyboardButton(text=EDIT_SCHEDULE_BUTTON)],
             [KeyboardButton(text=TODAY_BUTTON), KeyboardButton(text=WEEK_BUTTON)],
             [KeyboardButton(text=LESSONS_BUTTON)],
         ],
@@ -626,6 +749,7 @@ HELP_TEXT = """
 <code>/start</code> - открыть меню
 <code>/cancel</code> - отменить текущее добавление
 <code>/new_lesson</code> - добавить занятие через кнопки
+<code>/q Захар ср 20:30</code> - быстрый ввод
 <code>/edit_schedule</code> - изменить расписание ученика
 <code>/students</code> - список учеников
 <code>/today</code> - занятия сегодня
@@ -633,6 +757,13 @@ HELP_TEXT = """
 <code>/lessons</code> - ближайшие занятия
 
 <b>Быстрый ввод</b>
+<code>Захар ср 20:30</code>
+<code>Никита ср 19:30, чт 19:00</code>
+<code>София среда 17:00 90</code>
+
+По умолчанию быстрый ввод добавляет еженедельное занятие на 60 минут.
+
+<b>Подробный ввод</b>
 <code>/add_student Имя | Предмет | Заметки</code>
 <code>/add_lesson ID | 2026-04-29 18:30 | 60 | once | заметка</code>
 
@@ -665,6 +796,58 @@ async def help_command(message: Message) -> None:
 async def cancel_command(message: Message, state: FSMContext) -> None:
     await state.clear()
     await message.answer("Ок, отменил текущее действие.", reply_markup=main_keyboard())
+
+
+async def ask_quick_add(message: Message, state: FSMContext) -> None:
+    await state.clear()
+    await state.set_state(QuickAddFlow.text)
+    await message.answer(
+        "<b>Быстрый ввод</b>\n\n"
+        "Напиши одной строкой:\n"
+        "<code>Захар ср 20:30</code>\n"
+        "<code>Никита ср 19:30, чт 19:00</code>\n"
+        "<code>София среда 17:00 90</code>\n\n"
+        "Если длительность не указана, поставлю 60 минут. Занятия будут еженедельными.",
+        reply_markup=cancel_keyboard(),
+    )
+
+
+async def handle_quick_add_text(message: Message, state: FSMContext, text: str) -> None:
+    try:
+        info_message, added_lessons = quick_add_weekly_lessons(text)
+    except ValueError as exc:
+        await message.answer(str(exc))
+        return
+
+    await state.clear()
+    if info_message:
+        await message.answer(info_message, reply_markup=main_keyboard())
+        return
+
+    await message.answer(
+        format_lessons(added_lessons, "Ничего не добавлено.", "Добавлено"),
+        reply_markup=main_keyboard(),
+    )
+
+
+@dp.message(Command("quick"))
+@dp.message(Command("q"))
+async def quick_add_command(message: Message, state: FSMContext) -> None:
+    command_parts = (message.text or "").split(maxsplit=1)
+    if len(command_parts) == 1:
+        await ask_quick_add(message, state)
+        return
+    await handle_quick_add_text(message, state, command_parts[1])
+
+
+@dp.message(F.text == QUICK_ADD_BUTTON)
+async def quick_add_button(message: Message, state: FSMContext) -> None:
+    await ask_quick_add(message, state)
+
+
+@dp.message(QuickAddFlow.text)
+async def quick_add_flow_text(message: Message, state: FSMContext) -> None:
+    await handle_quick_add_text(message, state, message.text or "")
 
 
 async def show_edit_students(message: Message, state: FSMContext) -> None:
