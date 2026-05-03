@@ -1,0 +1,59 @@
+2026-04-28 22:23:46,531 INFO tutor_bot: Bot started
+2026-04-28 22:23:46,531 INFO aiogram.dispatcher: Start polling
+2026-04-28 22:24:46,599 INFO aiogram.dispatcher: Polling stopped
+Traceback (most recent call last):
+  File "/Users/3xlsx/Documents/New project 2/.venv/lib/python3.9/site-packages/aiohttp/connector.py", line 1025, in _wrap_create_connection
+    return await self._loop.create_connection(*args, **kwargs)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/base_events.py", line 1081, in create_connection
+    transport, protocol = await self._create_connection_transport(
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/base_events.py", line 1111, in _create_connection_transport
+    await waiter
+ConnectionAbortedError: SSL handshake is taking longer than 60.0 seconds: aborting the connection
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/Users/3xlsx/Documents/New project 2/.venv/lib/python3.9/site-packages/aiogram/client/session/aiohttp.py", line 170, in make_request
+    async with session.post(
+  File "/Users/3xlsx/Documents/New project 2/.venv/lib/python3.9/site-packages/aiohttp/client.py", line 1197, in __aenter__
+    self._resp = await self._coro
+  File "/Users/3xlsx/Documents/New project 2/.venv/lib/python3.9/site-packages/aiohttp/client.py", line 581, in _request
+    conn = await self._connector.connect(
+  File "/Users/3xlsx/Documents/New project 2/.venv/lib/python3.9/site-packages/aiohttp/connector.py", line 544, in connect
+    proto = await self._create_connection(req, traces, timeout)
+  File "/Users/3xlsx/Documents/New project 2/.venv/lib/python3.9/site-packages/aiohttp/connector.py", line 944, in _create_connection
+    _, proto = await self._create_direct_connection(req, traces, timeout)
+  File "/Users/3xlsx/Documents/New project 2/.venv/lib/python3.9/site-packages/aiohttp/connector.py", line 1257, in _create_direct_connection
+    raise last_exc
+  File "/Users/3xlsx/Documents/New project 2/.venv/lib/python3.9/site-packages/aiohttp/connector.py", line 1226, in _create_direct_connection
+    transp, proto = await self._wrap_create_connection(
+  File "/Users/3xlsx/Documents/New project 2/.venv/lib/python3.9/site-packages/aiohttp/connector.py", line 1033, in _wrap_create_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host api.telegram.org:443 ssl:default [None]
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/Users/3xlsx/Documents/New project 2/bot.py", line 730, in <module>
+    asyncio.run(main())
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/Library/Developer/CommandLineTools/Library/Frameworks/Python3.framework/Versions/3.9/lib/python3.9/asyncio/base_events.py", line 642, in run_until_complete
+    return future.result()
+  File "/Users/3xlsx/Documents/New project 2/bot.py", line 726, in main
+    await dp.start_polling(bot)
+  File "/Users/3xlsx/Documents/New project 2/.venv/lib/python3.9/site-packages/aiogram/dispatcher/dispatcher.py", line 551, in start_polling
+    await asyncio.gather(*done)
+  File "/Users/3xlsx/Documents/New project 2/.venv/lib/python3.9/site-packages/aiogram/dispatcher/dispatcher.py", line 340, in _polling
+    user: User = await bot.me()
+  File "/Users/3xlsx/Documents/New project 2/.venv/lib/python3.9/site-packages/aiogram/client/bot.py", line 381, in me
+    self._me = await self.get_me()
+  File "/Users/3xlsx/Documents/New project 2/.venv/lib/python3.9/site-packages/aiogram/client/bot.py", line 1843, in get_me
+    return await self(call, request_timeout=request_timeout)
+  File "/Users/3xlsx/Documents/New project 2/.venv/lib/python3.9/site-packages/aiogram/client/bot.py", line 509, in __call__
+    return await self.session(self, method, timeout=request_timeout)
+  File "/Users/3xlsx/Documents/New project 2/.venv/lib/python3.9/site-packages/aiogram/client/session/base.py", line 254, in __call__
+    return cast(TelegramType, await middleware(bot, method))
+  File "/Users/3xlsx/Documents/New project 2/.venv/lib/python3.9/site-packages/aiogram/client/session/aiohttp.py", line 177, in make_request
+    raise TelegramNetworkError(method=method, message=f"{type(e).__name__}: {e}")
+aiogram.exceptions.TelegramNetworkError: HTTP Client says - ClientConnectorError: Cannot connect to host api.telegram.org:443 ssl:default [None]
